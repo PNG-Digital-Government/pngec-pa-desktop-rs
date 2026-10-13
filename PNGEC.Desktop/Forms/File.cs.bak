@@ -1,0 +1,1128 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Data;
+using System.Drawing;
+using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+using iTextSharp.text;
+using iTextSharp.text.pdf;
+using PNGEC.API.Domain.Listing;
+using PNGEC.API.Domain.Mobile.Voter;
+using PNGEC.API.Helper;
+using PNGEC.Desktop.Model;
+using PNGEC.Desktop.Properties;
+
+namespace PNGEC.Desktop.Forms
+{
+    public partial class File : Form
+    {
+        #region variable declaration
+        /// <summary>
+        /// The header CheckBox
+        /// </summary>
+        private CheckBox headerCheckBox = new CheckBox();
+
+        /// <summary>
+        /// The geo tree structure
+        /// </summary>
+        private GeoTreeStructure TreeStructure = null;
+
+        /// <summary>
+        /// The page list
+        /// </summary>
+        private PageList pageList = null;
+
+        /// <summary>
+        /// The BTN pager
+        /// </summary>
+        private Button btnPager = new Button();
+
+        /// <summary>
+        /// The page size value
+        /// </summary>
+        private int pageSizeValue;
+
+        /// <summary>
+        /// The page size array
+        /// </summary>
+        private string[] pageSizeArray = { "10", "50", "100", "500" };
+
+        /// <summary>
+        /// The filed array
+        /// </summary>
+        private string[] filedArray = { "Status" };
+
+        /// <summary>
+        /// The status array
+        /// </summary>
+        private string[] StatusArray = { "OLD", "NEW", "UPDATED", "DECEASED", "TRANSFERRED OUT", "GHOST", "DELETED", "DUPLICATE", "TRANSFERRED IN" };
+
+        /// <summary>
+        /// The page name
+        /// </summary>
+        private string pageName = string.Empty;
+
+        /// <summary>
+        /// The request model
+        /// </summary>
+        private CommonRequest requestModel = null;
+
+        /// <summary>
+        /// The response
+        /// </summary>
+        private Response response = null;
+        #endregion
+
+        #region constructor
+        /// <summary>
+        /// Initializes a new instance of the <see cref="File"/> class.
+        /// </summary>
+        public File()
+        {
+            InitializeComponent();
+        }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="File"/> class.
+        /// </summary>
+        /// <param name="pageName">Name of the page.</param>
+        public File(string pageName)
+        {
+            InitializeComponent();
+            this.pageName = pageName;
+        }
+        #endregion
+
+        #region Events
+
+        /// <summary>
+        /// Handles the Load event of the File control.
+        /// </summary>
+        /// <param name="sender">The source of the event.</param>
+        /// <param name="e">The <see cref="EventArgs"/> instance containing the event data.</param>
+        private void File_Load(object sender, EventArgs e)
+        {
+            //InitTreeData();
+
+            headerCheckBox.Click -= new EventHandler(HeaderCheckBox_Clicked);
+            headerCheckBox.Click += new EventHandler(HeaderCheckBox_Clicked);
+
+            dgFile.CellContentClick -= new DataGridViewCellEventHandler(dgFile_CellClick);
+            dgFile.CellContentClick += new DataGridViewCellEventHandler(dgFile_CellClick);
+
+            GlobalsModel.mainMaster.TreeViewSelectedChanged += TreeViewSelectedChanged_AfterSelect;
+
+            FiledComboboxBind();
+
+            ManagePanel();
+        }
+
+        /// <summary>
+        /// Handles the AfterCollapse event of the tvGeoStructure control.
+        /// </summary>
+        /// <param name="sender">The source of the event.</param>
+        /// <param name="e">The <see cref="TreeViewEventArgs"/> instance containing the event data.</param>
+        private void tvGeoStructure_AfterCollapse(object sender, TreeViewEventArgs e)
+        {
+
+        }
+
+        /// <summary>
+        /// Handles the AfterSelect event of the tvGeoStructure control.
+        /// </summary>
+        /// <param name="sender">The source of the event.</param>
+        /// <param name="e">The <see cref="TreeViewEventArgs"/> instance containing the event data.</param>
+        private void tvGeoStructure_AfterSelect(object sender, TreeViewEventArgs e)
+        {
+            TreeStructure = (GeoTreeStructure)e.Node.Tag;
+            GridViewSetting();
+            //GridViewSetting((GeoTreeStructure)e.Node.Tag);
+        }
+
+        /// <summary>
+        /// Handles the Click event of the btnSearch control.
+        /// </summary>
+        /// <param name="sender">The source of the event.</param>
+        /// <param name="e">The <see cref="EventArgs"/> instance containing the event data.</param>
+        private void btnSearch_Click(object sender, EventArgs e)
+        {
+            GridViewSetting("Search");
+        }
+
+        /// <summary>
+        /// Handles the Click event of the btnRefresh control.
+        /// </summary>
+        /// <param name="sender">The source of the event.</param>
+        /// <param name="e">The <see cref="EventArgs"/> instance containing the event data.</param>
+        private void btnRefresh_Click(object sender, EventArgs e)
+        {
+            txtSearch.Text = string.Empty;
+            GridViewSetting("Refresh");
+
+            // Clear all checkbox
+            if (Convert.ToString(cmbStatus.SelectedValue) != "OLD")
+            {
+                if ((this.pageName == "DataMigration"
+                        && (GlobalsModel.LoggedUser.User.Role == 2 && GlobalsModel.LoggedUser.Database == CommonEnum.Database.Staging)
+                        || (GlobalsModel.LoggedUser.User.Role == 3 && GlobalsModel.LoggedUser.Database == CommonEnum.Database.Preliminary)) || this.pageName == "WardRollBook")
+                {
+                    headerCheckBox.Checked = false;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Handles the Clicked event of the HeaderCheckBox control.
+        /// </summary>
+        /// <param name="sender">The source of the event.</param>
+        /// <param name="e">The <see cref="EventArgs"/> instance containing the event data.</param>
+        private void HeaderCheckBox_Clicked(object sender, EventArgs e)
+        {
+            //Necessary to end the edit mode of the Cell.
+            dgFile.EndEdit();
+
+            //Loop and check and uncheck all row CheckBoxes based on Header Cell CheckBox.
+            foreach (DataGridViewRow row in dgFile.Rows)
+            {
+                DataGridViewCheckBoxCell checkBox = (row.Cells["checkBoxColumn"] as DataGridViewCheckBoxCell);
+                checkBox.Value = headerCheckBox.Checked;
+            }
+        }
+
+        /// <summary>
+        /// Handles the SelectedIndexChanged event of the CmbPageSize control.
+        /// </summary>
+        /// <param name="sender">The source of the event.</param>
+        /// <param name="e">The <see cref="EventArgs"/> instance containing the event data.</param>
+        private void CmbPageSize_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            pageSizeValue = Convert.ToInt32(cmbPageSize.SelectedValue);
+            GridViewSetting();
+        }
+
+        /// <summary>
+        /// Handles the Click event of the Page control.
+        /// </summary>
+        /// <param name="sender">The source of the event.</param>
+        /// <param name="e">The <see cref="EventArgs"/> instance containing the event data.</param>
+        private void Page_Click(object sender, EventArgs e)
+        {
+            btnPager = (sender as Button);
+            GridViewSetting();
+        }
+
+        /// <summary>
+        /// Handles the SelectedIndexChanged event of the cmbFiled control.
+        /// </summary>
+        /// <param name="sender">The source of the event.</param>
+        /// <param name="e">The <see cref="EventArgs"/> instance containing the event data.</param>
+        private void cmbFiled_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            SatusComboboxBind();
+        }
+
+        /// <summary>
+        /// Handles the Click event of the btnApprove control.
+        /// </summary>
+        /// <param name="sender">The source of the event.</param>
+        /// <param name="e">The <see cref="EventArgs"/> instance containing the event data.</param>
+        private void btnApprove_Click(object sender, EventArgs e)
+        {
+            ManageVoterStatus("Approve");
+        }
+
+        /// <summary>
+        /// Handles the Click event of the btnReject control.
+        /// </summary>
+        /// <param name="sender">The source of the event.</param>
+        /// <param name="e">The <see cref="EventArgs"/> instance containing the event data.</param>
+        private void btnReject_Click(object sender, EventArgs e)
+        {
+            ManageVoterStatus("Reject");
+        }
+
+        /// <summary>
+        /// Handles the Click event of the btnExport control.
+        /// </summary>
+        /// <param name="sender">The source of the event.</param>
+        /// <param name="e">The <see cref="EventArgs"/> instance containing the event data.</param>
+        private void btnExport_Click(object sender, EventArgs e)
+        {
+             ExportGridToPDF(dgFile, "WardRollBook");
+        } 
+
+        /// <summary>
+        /// Handles the CellClick event of the dgFile control.
+        /// </summary>
+        /// <param name="sender">The source of the event.</param>
+        /// <param name="e">The <see cref="DataGridViewCellEventArgs"/> instance containing the event data.</param>
+        /// <exception cref="NotImplementedException"></exception>
+        private void dgFile_CellClick(object sender, DataGridViewCellEventArgs e)
+        {
+            //Check to ensure that the row CheckBox is clicked.
+            if (e.RowIndex >= 0 && dgFile.Columns[e.ColumnIndex].Name == "checkBoxColumn" && e.ColumnIndex == 0)
+            {
+                DataGridViewCheckBoxCell crntCheckBoxCell = (DataGridViewCheckBoxCell)this.dgFile.Rows[e.RowIndex].Cells["checkBoxColumn"];
+                if (crntCheckBoxCell.Value == null)
+                {
+                    crntCheckBoxCell.Value = true;
+                }
+                else
+                {
+                    crntCheckBoxCell.Value = !(bool)crntCheckBoxCell.Value;
+                }
+
+                //Loop to verify whether all row CheckBoxes are checked or not.
+                bool isChecked = true;
+                foreach (DataGridViewRow row in dgFile.Rows)
+                {
+                    if (Convert.ToBoolean(row.Cells["checkBoxColumn"].EditedFormattedValue) == false)
+                    {
+                        isChecked = false;
+                        break;
+                    }
+                }
+                headerCheckBox.Checked = isChecked;
+            }
+            else if (e.RowIndex >= 0 && dgFile.Columns[e.ColumnIndex].Name == "View")
+            {
+                // Clear all checkbox
+                if (Convert.ToString(cmbStatus.SelectedValue) != "OLD")
+                {
+                    if ((this.pageName == "DataMigration"
+                        && (GlobalsModel.LoggedUser.User.Role == 2 && GlobalsModel.LoggedUser.Database == CommonEnum.Database.Staging)
+                        || (GlobalsModel.LoggedUser.User.Role == 3 && GlobalsModel.LoggedUser.Database == CommonEnum.Database.Preliminary)) || this.pageName == "WardRollBook")
+                    {
+                        this.ClearCheckbox();
+                    }
+                }
+
+                VoterModel model = GetGridCellData(e.RowIndex);
+
+                if (model != null)
+                {
+                    VoterDetails user = new VoterDetails(model, this.pageName);
+                    if (user.ShowDialog() == DialogResult.OK)
+                    {
+                        GridViewSetting();
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Handles the AfterSelect event of the TreeViewSelectedChanged control.
+        /// </summary>
+        /// <param name="sender">The source of the event.</param>
+        /// <param name="e">The <see cref="EventArgs"/> instance containing the event data.</param>
+        public void TreeViewSelectedChanged_AfterSelect(object sender, EventArgs e)
+        {
+            TreeStructure = GlobalsModel.TreeViewStructure;
+            GridViewSetting();
+        }
+
+        #endregion
+
+        #region Methods
+
+        #region ManagePanel
+        /// <summary>
+        /// Manages the panel.
+        /// </summary>
+        /// <exception cref="NotImplementedException"></exception>
+        private void ManagePanel()
+        {
+            if ((this.pageName == "DataMigration"
+                    && (GlobalsModel.LoggedUser.User.Role == 2 && GlobalsModel.LoggedUser.Database == CommonEnum.Database.Staging)
+                    || (GlobalsModel.LoggedUser.User.Role == 3 && GlobalsModel.LoggedUser.Database == CommonEnum.Database.Preliminary)))
+            {
+                pnlExport.Visible = false;
+            }
+            else if (this.pageName == "WardRollBook")
+            {
+                pnlApproveReject.Visible = false;
+            }
+            else
+            {
+                pnlApproveReject.Visible = false;
+                pnlExport.Visible = false;
+            }
+        }
+        #endregion
+
+        #region Filed Combobox Bind
+        /// <summary>
+        /// Fileds the combobox bind.
+        /// </summary>
+        /// <exception cref="NotImplementedException"></exception>
+        private void FiledComboboxBind()
+        {
+            cmbFiled.DataSource = filedArray;
+        }
+        #endregion
+
+        #region Satus Combobox Bind
+        /// <summary>
+        /// Satuses the combobox bind.
+        /// </summary>
+        private void SatusComboboxBind()
+        {
+            cmbStatus.DataSource = StatusArray;
+        }
+        #endregion
+
+        #region InitTreeData
+        /// <summary>
+        /// Initializes the tree data.
+        /// </summary>
+        private void InitTreeData()
+        {
+            SetData();
+        }
+        #endregion
+
+        #region SetData
+        /// <summary>
+        /// Sets the data.
+        /// </summary>
+        private void SetData()
+        {
+            //List<GeoTreeStructure> locations = (from DataRow dr in Globals.dtLocation.Rows
+            //                                    select new GeoTreeStructure()
+            //                                    {
+            //                                        Id = Convert.ToInt32(dr["LocationId"]),
+            //                              s          Name = dr["LocationName"].ToString(),
+            //                                        MainTagName = "Location",
+            //                                        ParentId = Convert.ToInt32(dr["WardId"]),
+            //                                        Children = null
+            //                                    }).ToList();
+            //List<GeoTreeStructure> wards = (from DataRow dr in Globals.dtWard.Rows
+            //                                select new GeoTreeStructure()
+            //                                {
+            //                                    Id = Convert.ToInt32(dr["WardId"]),
+            //                                    Name = dr["WardName"].ToString(),
+            //                                    MainTagName = "Ward",
+            //                                    ParentId = Convert.ToInt32(dr["LLGId"]),
+            //                                    Children = locations.Where(l => l.ParentId == Convert.ToInt32(dr["WardId"])).ToList()
+            //                                }).ToList();
+            //List<GeoTreeStructure> llgs = (from DataRow dr in Globals.dtLLG.Rows
+            //                               select new GeoTreeStructure()
+            //                               {
+            //                                   Name = dr["LLGName"].ToString(),
+            //                                   Id = Convert.ToInt32(dr["LLGId"]),
+            //                                   ParentId = Convert.ToInt32(dr["DistrictId"]),
+            //                                   MainTagName = "LLG",
+            //                                   Children = wards.Where(w => w.ParentId == Convert.ToInt32(dr["LLGId"])).ToList()
+            //                               }).ToList();
+            //List<GeoTreeStructure> districts = (from DataRow dr in Globals.dtDistrict.Rows
+            //                                    select new GeoTreeStructure()
+            //                                    {
+            //                                        Name = dr["DistrictName"].ToString(),
+            //                                        ParentId = Convert.ToInt32(dr["ProvinceId"]),
+            //                                        Id = Convert.ToInt32(dr["DistrictId"]),
+            //                                        MainTagName = "District",
+            //                                        Children = llgs.Where(w => w.ParentId == Convert.ToInt32(dr["DistrictId"])).ToList()
+            //                                    }).ToList();
+            //List<GeoTreeStructure> provinces = (from DataRow dr in Globals.dtProvince.Rows
+            //                                    select new GeoTreeStructure()
+            //                                    {
+            //                                        Name = dr["ProvinceName"].ToString(),
+            //                                        Id = Convert.ToInt32(dr["ProvinceId"]),
+            //                                        ParentId = Convert.ToInt32(dr["RegionId"]),
+            //                                        MainTagName = "Province",
+            //                                        Children = districts.Where(w => w.ParentId == Convert.ToInt32(dr["ProvinceId"])).ToList()
+            //                                    }).ToList();
+            //List<GeoTreeStructure> regionList = (from DataRow dr in Globals.dtRegion.Rows
+            //                                     select new GeoTreeStructure()
+            //                                     {
+            //                                         Id = Convert.ToInt32(dr["RegionId"]),
+            //                                         Name = dr["RegionName"].ToString(),
+            //                                         ParentId = default(int),
+            //                                         Children = provinces.Where(p => p.ParentId == Convert.ToInt32(dr["RegionId"])).ToList()
+            //                                     }).ToList();
+
+            //PopulateTreeView(regionList, null);
+
+            var loc = Globals.GeoList.LocationList.Select(l => new GeoTreeStructure()
+            {
+                Id = l.LocationId,
+                Name = l.LocationName,
+                MainTagName = "Location",
+                ParentId = l.WardId,
+                Children = null
+            });
+            var ward = Globals.GeoList.WardList.Select(w => new GeoTreeStructure()
+            {
+                Id = w.WardId,
+                Name = w.WardName,
+                MainTagName = "Ward",
+                ParentId = w.LLGId,
+                Children = loc.Where(l => l.ParentId == w.WardId)
+            });
+            var llg = Globals.GeoList.LLGList.Select(w => new GeoTreeStructure()
+            {
+                Id = w.LLGId,
+                Name = w.LLGName,
+                MainTagName = "LLG",
+                ParentId = w.DistrictId,
+                Children = ward.Where(l => l.ParentId == w.LLGId)
+            });
+            var dis = Globals.GeoList.DistrictList.Select(w => new GeoTreeStructure()
+            {
+                Id = w.DistrictId,
+                Name = w.DistrictName,
+                MainTagName = "District",
+                ParentId = w.ProvinceId,
+                Children = llg.Where(l => l.ParentId == w.DistrictId)
+            });
+            var pro = Globals.GeoList.ProvinceList.Select(w => new GeoTreeStructure()
+            {
+                Id = w.ProvinceId,
+                Name = w.ProvinceName,
+                MainTagName = "Province",
+                ParentId = w.RegionId,
+                Children = dis.Where(l => l.ParentId == w.ProvinceId)
+            });
+            var reg = Globals.GeoList.RegionList.Select(w => new GeoTreeStructure()
+            {
+                Id = w.RegionId,
+                Name = w.RegionName,
+                MainTagName = "Region",
+                ParentId = default(int),
+                Children = pro.Where(l => l.ParentId == w.RegionId)
+            });
+            InitializeActualTreeLogic(reg);
+        }
+        #endregion
+
+        #region unused code
+        //private void PopulateTreeView(List<GeoTreeStructure> data, TreeNode parentNode)
+        //{
+        //    TreeNode childNode;
+
+        //    foreach (GeoTreeStructure row in data)
+        //    {
+        //        TreeNode t = new TreeNode();
+        //        t.Text = row.Name.ToString();
+        //        t.Tag = row.Id;
+        //        t.Name = row.MainTagName;
+        //        if (parentNode == null)
+        //        {
+        //            tvGeoStructure.Nodes.Add(t);
+        //            childNode = t;
+        //        }
+        //        else
+        //        {
+        //            parentNode.Nodes.Add(t);
+        //            childNode = t;
+        //        }
+        //        if (row.Children != null)
+        //            PopulateTreeView(row.Children, childNode);
+        //    }
+
+        //    Console.WriteLine(tvGeoStructure);
+        //}
+        #endregion
+
+        #region InitializeActualTreeLogic
+        /// <summary>
+        /// Initializes the actual tree logic.
+        /// </summary>
+        /// <param name="region">The region.</param>
+        private async void InitializeActualTreeLogic(IEnumerable<GeoTreeStructure> region)
+        {
+            //this.Cursor = Cursors.WaitCursor;
+            GeoTreeStructure geoTreeStructure = new GeoTreeStructure();
+            geoTreeStructure.Id = 0;
+            geoTreeStructure.MainTagName = "Geo";
+            await Task.Delay(50);
+            tvGeoStructure.Invoke((Action)delegate ()
+            {
+                this.Cursor = Cursors.WaitCursor;
+                TreeNode t = new TreeNode();
+                t.Text = "PNGEC";
+                t.Tag = region;
+                t.Name = "Region";
+                t.ImageKey = "PNGEC";
+                t.Tag = geoTreeStructure;
+                tvGeoStructure.BeginUpdate(); // No visual updates until we say 
+                tvGeoStructure.Nodes.Clear(); // Remove existing nodes
+                tvGeoStructure.Nodes.Add(t);
+                PopulateTreeView(region, t);
+                tvGeoStructure.SelectedNode = t;
+                tvGeoStructure.SelectedNode.Expand();
+                tvGeoStructure.EndUpdate(); // Allow the treeview to update visually
+                this.Cursor = Cursors.Default;
+                //this.pnlGeoButtons.Enabled = true;
+            });
+        }
+        #endregion
+
+        #region PopulateTreeView
+        /// <summary>
+        /// Populates the TreeView.
+        /// </summary>
+        /// <param name="data">The data.</param>
+        /// <param name="parentNode">The parent node.</param>
+        private void PopulateTreeView(IEnumerable<GeoTreeStructure> data, TreeNode parentNode)
+        {
+            TreeNode childNode;
+            foreach (GeoTreeStructure row in data)
+            {
+                TreeNode t = new TreeNode();
+                t.Text = row.Name.ToString();
+                t.Tag = row;
+                t.Name = row.MainTagName;
+                t.ImageKey = Convert.ToString(row.Id);
+                if (parentNode == null)
+                {
+                    tvGeoStructure.Nodes.Add(t);
+                    childNode = t;
+                }
+                else
+                {
+                    parentNode.Nodes.Add(t);
+                    childNode = t;
+                }
+                if (row.Children != null)
+                    PopulateTreeView(row.Children, childNode);
+            }
+        }
+        #endregion
+
+        #region GridViewSetting
+        /// <summary>
+        /// Grids the view setting.
+        /// </summary>
+        private void GridViewSetting(string eventName = "")
+        {
+            pageList = new PageList();
+
+            // Current Database Filed 
+            pageList.DatabaseName = GlobalsModel.LoggedUser.Database.ToString();
+
+            // Pagination Filed
+            string pageIndex = string.Empty;
+            if (eventName == "Refresh" || eventName == "Search")
+            {
+                pageIndex = "1";
+            }
+            else
+            {
+                pageIndex = btnPager.Name.Equals("") ? "1" : btnPager.Name;
+            }
+            pageList.PageNo = int.Parse(pageIndex);
+            pageList.PageSize = pageSizeValue.Equals(0) ? 10 : pageSizeValue;
+            pageList.KeyWord = txtSearch.Text;
+            pageList.SortField = "ElectorId";
+            pageList.SortOrder = "DESC";
+
+            // Filter Filed
+            pageList.FiledName = Convert.ToString(cmbFiled.SelectedValue);
+            pageList.FiledValue = Convert.ToString(cmbStatus.SelectedValue);
+
+            // TreeView Filed
+            pageList.GeoName = TreeStructure.MainTagName;
+            pageList.GeoId = TreeStructure.Id;
+
+            if (pageList != null)
+            {
+                this.BindGrid(pageList);
+            }
+        }
+        #endregion
+
+        #region Bind Grid
+        /// <summary>
+        /// Binds the grid.
+        /// </summary>
+        /// <param name="model">The model.</param>
+        private async void BindGrid(PageList model)
+        {
+            Response<VoterModel> response = await GenericHttpClient.PostRequest<VoterModel>("File/GetVoterList", model);
+            if (response.Status)
+            {
+                if (response.Data.ListItems.ToList() != null)
+                {
+                    BindVoterGird(response.Data.ListItems.ToList());
+                    PopulatePager(response.Data.TotalRecordCount, model.PageNo, model.PageSize);
+                }
+            }
+        }
+        #endregion
+
+        #region Bind Voter Gird
+        /// <summary>
+        /// Binds the voter gird.
+        /// </summary>
+        /// <param name="lstVoters">The LST voters.</param>
+        private void BindVoterGird(List<VoterModel> lstVoters)
+        {
+            try
+            {
+                if (this.dgFile.Columns.Count > 0)
+                {
+                    this.dgFile.Columns.Clear();
+                }
+
+                // Unvisible Column
+                this.dgFile.DataSource = null;
+                this.dgFile.DataSource = lstVoters;
+                this.dgFile.Columns["OldElectorID"].Visible = false;
+                this.dgFile.Columns["LocationId"].Visible = false;
+                this.dgFile.Columns["WardId"].Visible = false;
+                this.dgFile.Columns["LLGId"].Visible = false;
+                this.dgFile.Columns["DistrictId"].Visible = false;
+                this.dgFile.Columns["ProvinceId"].Visible = false;
+                this.dgFile.Columns["RegionId"].Visible = false;
+                this.dgFile.Columns["LName"].Visible = false;
+                this.dgFile.Columns["FName"].Visible = false;
+                this.dgFile.Columns["Gender"].Visible = false;
+                this.dgFile.Columns["DOB"].Visible = false;
+                this.dgFile.Columns["isYOB"].Visible = false;
+                this.dgFile.Columns["isPWD"].Visible = false;
+                this.dgFile.Columns["FatherLName"].Visible = false;
+                this.dgFile.Columns["FatherFName"].Visible = false;
+                this.dgFile.Columns["MotherLName"].Visible = false;
+                this.dgFile.Columns["MotherFName"].Visible = false;
+                this.dgFile.Columns["ProvOfBirthFK"].Visible = false;
+                this.dgFile.Columns["PlaceOfBirth"].Visible = false;
+                this.dgFile.Columns["OccupationFK"].Visible = false;
+                this.dgFile.Columns["ClanFK"].Visible = false;
+                this.dgFile.Columns["SubClan"].Visible = false;
+                this.dgFile.Columns["Address"].Visible = false;
+                this.dgFile.Columns["NatID"].Visible = false;
+                this.dgFile.Columns["NatIDRecordNo"].Visible = false;
+                this.dgFile.Columns["HouseFK"].Visible = false;
+                this.dgFile.Columns["HouseSortOrder"].Visible = false;
+                this.dgFile.Columns["FamilyFK"].Visible = false;
+                this.dgFile.Columns["FamilySortOrder"].Visible = false;
+                //this.dgFile.Columns["changed"].Visible = false;
+                this.dgFile.Columns["dpo"].Visible = false;
+                this.dgFile.Columns["posted"].Visible = false;
+                //this.dgFile.Columns["gps"].Visible = false;
+
+                this.dgFile.Columns["LocationName"].Visible = false;
+                this.dgFile.Columns["WardName"].Visible = false;
+                this.dgFile.Columns["LLGName"].Visible = false;
+                this.dgFile.Columns["ProvinceOfBirth"].Visible = false;
+                this.dgFile.Columns["ProvinceName"].Visible = false;
+                this.dgFile.Columns["Occupation"].Visible = false;
+
+
+                // New Add Column
+                this.dgFile.Columns["FamilyNumber"].Visible = false;
+                this.dgFile.Columns["FamilyName"].Visible = false;
+                this.dgFile.Columns["FamilySortOrder"].Visible = false;
+                this.dgFile.Columns["OpenElectorate"].Visible = false;
+                this.dgFile.Columns["Clan"].Visible = false;
+                this.dgFile.Columns["RestHouse"].Visible = false;
+                this.dgFile.Columns["SectionNo"].Visible = false;
+                this.dgFile.Columns["LotNo"].Visible = false;
+                this.dgFile.Columns["StreetName"].Visible = false;
+                this.dgFile.Columns["SuburbTownSettlement"].Visible = false;
+                this.dgFile.Columns["Comment"].Visible = false;
+                this.dgFile.Columns["ElectorProfileImage"].Visible = false;
+                this.dgFile.Columns["ElectorProfileImageUrl"].Visible = false;
+                this.dgFile.Columns["Lat"].Visible = false;
+                this.dgFile.Columns["Long"].Visible = false;
+                this.dgFile.Columns["ElectorFormImage"].Visible = false;
+                this.dgFile.Columns["ElectorFormImageUrl"].Visible = false;
+                this.dgFile.Columns["ElectorFormImageFile"].Visible = false;
+                this.dgFile.Columns["ElectorProfileImageFile"].Visible = false;
+                this.dgFile.Columns["EnrolmentFormNumber"].Visible = false;
+                this.dgFile.Columns["CreatedBy"].Visible = false;
+
+                // Display Column
+                this.dgFile.Columns["VoterName"].HeaderText = "Voter Name";
+                this.dgFile.Columns["VoterName"].DisplayIndex = 1;
+
+                this.dgFile.Columns["ElectorId"].HeaderText = "Elector Id";
+                this.dgFile.Columns["ElectorId"].DisplayIndex = 2;
+
+                this.dgFile.Columns["Status"].HeaderText = "Status";
+                this.dgFile.Columns["Status"].DisplayIndex = 3;
+
+                #region CheckBox
+                if (Convert.ToString(cmbStatus.SelectedValue) != "OLD")
+                {
+                    if((this.pageName == "DataMigration"
+                        && (GlobalsModel.LoggedUser.User.Role == 2 && GlobalsModel.LoggedUser.Database == CommonEnum.Database.Staging) 
+                        || (GlobalsModel.LoggedUser.User.Role == 3 && GlobalsModel.LoggedUser.Database == CommonEnum.Database.Preliminary)) || this.pageName == "WardRollBook")
+                    {
+                        //Add a CheckBox Column to the DataGridView at the first position.
+                        DataGridViewCheckBoxColumn checkBoxColumn = new DataGridViewCheckBoxColumn();
+                        checkBoxColumn.AutoSizeMode = DataGridViewAutoSizeColumnMode.None;
+                        ////checkBoxColumn.CellTemplate = new DataGridViewCheckBoxCell();
+                        checkBoxColumn.FlatStyle = FlatStyle.Standard;
+                        checkBoxColumn.ReadOnly = false;
+                        checkBoxColumn.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
+                        checkBoxColumn.HeaderText = string.Empty;
+                        checkBoxColumn.Width = 40;
+                        checkBoxColumn.Name = "checkBoxColumn";
+                        if (dgFile.Columns["checkBoxColumn"] == null)
+                        {
+                            dgFile.Columns.Insert(0, checkBoxColumn);
+                        };
+
+                        System.Drawing.Rectangle oRectangle = this.dgFile.GetCellDisplayRectangle(0, -1, true);
+                        Point oPoint = new Point();
+                        headerCheckBox.Size = new Size(15, 15);
+                        oPoint.X = oRectangle.Location.X + (oRectangle.Width - headerCheckBox.Width) / 2 + 1;
+                        oPoint.Y = oRectangle.Location.Y + (oRectangle.Height - headerCheckBox.Height) / 2 + 1;
+                        headerCheckBox.BackColor = Color.FromArgb(180, 180, 180);
+                        //Change the location of the CheckBox to make it stay on the header
+                        headerCheckBox.Location = oPoint;
+                        headerCheckBox.Checked = false;
+                        headerCheckBox.Visible = true;
+                        dgFile.Controls.Add(headerCheckBox);
+
+                        //Assign Click event to the DataGridView Cell.
+                        //dgVoters.CellContentClick += new DataGridViewCellEventHandler(dgVoters_CellClick);
+                    }
+                }
+                else
+                {
+                    headerCheckBox.Checked = false;
+                    headerCheckBox.Visible = false;
+                }
+                #endregion
+
+                #region View Button
+                if (this.pageName == "File" || this.pageName == "DataMigration")
+                {
+                    DataGridViewButtonColumn viewButton = new DataGridViewButtonColumn();
+                    viewButton.AutoSizeMode = DataGridViewAutoSizeColumnMode.None;
+                    viewButton.FlatStyle = FlatStyle.Standard;
+                    viewButton.HeaderText = "Action";
+                    viewButton.Name = "View";
+                    viewButton.Text = "View";
+                    viewButton.UseColumnTextForButtonValue = true;
+                    viewButton.Width = 60;
+                    if (dgFile.Columns["View"] == null)
+                    {
+                        dgFile.Columns.Insert(8, viewButton);
+                    }
+                }
+                #endregion
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(Resources.ResourceManager.GetString("ErrorMessage"), "PNGEC", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                ErrorLog.Write("List Voter", "BindVoterGird", ex);
+            }
+        }
+        #endregion
+
+        #region Populate Pager
+        /// <summary>
+        /// Populates the pager.
+        /// </summary>
+        /// <param name="recordCount">The record count.</param>
+        /// <param name="currentPage">The current page.</param>
+        private void PopulatePager(int recordCount, int currentPage, int pageSize)
+        {
+            List<Page> pages = new List<Page>();
+            int startIndex, endIndex;
+            int pagerSpan = 5;
+
+            //Calculate the Start and End Index of pages to be displayed.
+            double dblPageCount = (double)((decimal)recordCount / Convert.ToDecimal(pageList.PageSize));
+            int pageCount = (int)Math.Ceiling(dblPageCount);
+            startIndex = currentPage > 1 && currentPage + pagerSpan - 1 < pagerSpan ? currentPage : 1;
+            endIndex = pageCount > pagerSpan ? pagerSpan : pageCount;
+            if (currentPage > pagerSpan % 2)
+            {
+                if (currentPage == 2)
+                {
+                    endIndex = 5;
+                }
+                else
+                {
+                    endIndex = currentPage + 2;
+                }
+            }
+            else
+            {
+                endIndex = (pagerSpan - currentPage) + 1;
+            }
+
+            if (endIndex - (pagerSpan - 1) > startIndex)
+            {
+                startIndex = endIndex - (pagerSpan - 1);
+            }
+
+            if (endIndex > pageCount)
+            {
+                endIndex = pageCount;
+                startIndex = ((endIndex - pagerSpan) + 1) > 0 ? (endIndex - pagerSpan) + 1 : 1;
+            }
+
+            //Add the First Page Button.
+            if (currentPage > 1)
+            {
+                //var bitmap = new Bitmap(global::PNGEC.Desktop.Properties.Resources.first);
+                pages.Add(new Page { Text = "First", Value = "1" });
+            }
+
+            //Add the Previous Button.
+            if (currentPage > 5)
+            {
+                pages.Add(new Page { Text = "<<", Value = (currentPage - 5).ToString() });
+            }
+
+            if (currentPage > 1)
+            {
+                pages.Add(new Page { Text = "<", Value = (currentPage - 1).ToString() });
+            }
+
+            for (int i = startIndex; i <= endIndex; i++)
+            {
+                pages.Add(new Page { Text = i.ToString(), Value = i.ToString(), Selected = i == currentPage });
+            }
+
+            //Add the Next Button.
+            if (currentPage < pageCount)
+            {
+                pages.Add(new Page { Text = ">", Value = (currentPage + 1).ToString() });
+            }
+
+            if (currentPage < pageCount)
+            {
+                pages.Add(new Page { Text = ">>", Value = (currentPage + 5).ToString() });
+            }
+
+            //Add the Last Button.
+            if (currentPage != pageCount)
+            {
+                pages.Add(new Page { Text = "Last", Value = pageCount.ToString() });
+            }
+
+            //Clear existing Pager Buttons.
+            pnlPaginationLeft.Controls.Clear();
+
+            //Loop and add Buttons for Pager.
+            int count = 0;
+            foreach (Page page in pages)
+            {
+                Button btnPage = new Button();
+                btnPage.Location = new System.Drawing.Point(65 * count, 5);
+                btnPage.Size = new System.Drawing.Size(65, 30);
+                btnPage.Font = new System.Drawing.Font("Arial", 10F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+                btnPage.Name = page.Value;
+                btnPage.Text = page.Text;
+                btnPage.Enabled = !page.Selected;
+                btnPage.Click += new System.EventHandler(this.Page_Click);
+                pnlPaginationLeft.Controls.Add(btnPage);
+                count++;
+            }
+
+            cmbPageSize.DataSource = pageSizeArray;
+            pnlPaginationRight.Visible = true;
+        }
+        #endregion
+
+        #region Clear Checkbox
+        /// <summary>
+        /// Clears the checkbox.
+        /// </summary>
+        private void ClearCheckbox()
+        {
+            headerCheckBox.Checked = false;
+
+            //Loop and check and uncheck all row CheckBoxes based on Header Cell CheckBox.
+            foreach (DataGridViewRow row in dgFile.Rows)
+            {
+                DataGridViewCheckBoxCell checkBox = (row.Cells["checkBoxColumn"] as DataGridViewCheckBoxCell);
+                checkBox.Value = headerCheckBox.Checked;
+            }
+        }
+        #endregion
+
+        #region Get Grid Cell Data
+        /// <summary>
+        /// Gets the grid cell data.
+        /// </summary>
+        private VoterModel GetGridCellData(int rowIndex)
+        {
+            VoterModel model = new VoterModel();
+
+            model.ElectorId = Convert.ToInt32(dgFile.Rows[rowIndex].Cells["ElectorId"].Value);
+
+            // Personal Particulars
+            model.FamilyNumber = Convert.ToString(dgFile.Rows[rowIndex].Cells["FamilyNumber"].Value);
+            model.FamilyName = Convert.ToString(dgFile.Rows[rowIndex].Cells["FamilyName"].Value);
+            model.FamilySortOrder = Convert.ToInt32(dgFile.Rows[rowIndex].Cells["FamilySortOrder"].Value);
+            model.LName = Convert.ToString(dgFile.Rows[rowIndex].Cells["LName"].Value);
+            model.FName = Convert.ToString(dgFile.Rows[rowIndex].Cells["FName"].Value);
+            model.NatIDRecordNo = Convert.ToString(dgFile.Rows[rowIndex].Cells["NatIDRecordNo"].Value);
+            model.DOB = Convert.ToDateTime(dgFile.Rows[rowIndex].Cells["DOB"].Value);
+            model.PlaceOfBirth = Convert.ToString(dgFile.Rows[rowIndex].Cells["PlaceOfBirth"].Value);
+            model.ProvinceOfBirth = Convert.ToString(dgFile.Rows[rowIndex].Cells["ProvinceOfBirth"].Value);
+            model.Gender = Convert.ToString(dgFile.Rows[rowIndex].Cells["Gender"].Value);
+            model.Occupation = Convert.ToString(dgFile.Rows[rowIndex].Cells["Occupation"].Value);
+            model.isPWD = Convert.ToBoolean(dgFile.Rows[rowIndex].Cells["isPWD"].Value);
+            model.FatherFName = Convert.ToString(dgFile.Rows[rowIndex].Cells["FatherFName"].Value);
+            model.FatherLName = Convert.ToString(dgFile.Rows[rowIndex].Cells["FatherLName"].Value);
+            model.MotherFName = Convert.ToString(dgFile.Rows[rowIndex].Cells["MotherFName"].Value);
+            model.MotherLName = Convert.ToString(dgFile.Rows[rowIndex].Cells["MotherLName"].Value);
+
+            // Place of Residence
+            model.ProvinceName = Convert.ToString(dgFile.Rows[rowIndex].Cells["ProvinceName"].Value);
+            model.OpenElectorate = Convert.ToString(dgFile.Rows[rowIndex].Cells["OpenElectorate"].Value);
+            model.LLGName = Convert.ToString(dgFile.Rows[rowIndex].Cells["LLGName"].Value);
+            model.WardName = Convert.ToString(dgFile.Rows[rowIndex].Cells["WardName"].Value);
+
+            // Rural
+            model.LocationName = Convert.ToString(dgFile.Rows[rowIndex].Cells["LocationName"].Value);
+            model.Clan = Convert.ToString(dgFile.Rows[rowIndex].Cells["Clan"].Value);
+            model.SubClan = Convert.ToString(dgFile.Rows[rowIndex].Cells["SubClan"].Value);
+            model.RestHouse = Convert.ToString(dgFile.Rows[rowIndex].Cells["RestHouse"].Value);
+
+            // Urban
+            model.SectionNo = Convert.ToString(dgFile.Rows[rowIndex].Cells["SectionNo"].Value);
+            model.LotNo = Convert.ToString(dgFile.Rows[rowIndex].Cells["LotNo"].Value);
+            model.StreetName = Convert.ToString(dgFile.Rows[rowIndex].Cells["StreetName"].Value);
+            model.SuburbTownSettlement = Convert.ToString(dgFile.Rows[rowIndex].Cells["SuburbTownSettlement"].Value);
+
+            // Status
+            model.Status = Convert.ToString(dgFile.Rows[rowIndex].Cells["Status"].Value);
+            model.Comment = Convert.ToString(dgFile.Rows[rowIndex].Cells["Comment"].Value);
+
+            return model;
+        }
+        #endregion
+
+        #region Manage Voter Status
+        /// <summary>
+        /// Manages the voter status.
+        /// </summary>
+        /// <exception cref="NotImplementedException"></exception>
+        private async void ManageVoterStatus(string isRequest)
+        {
+            List<int> electorId = new List<int>();
+            foreach (DataGridViewRow row in dgFile.Rows)
+            {
+                bool isSelected = Convert.ToBoolean(row.Cells["checkBoxColumn"].Value);
+                if (isSelected)
+                {
+                    electorId.Add(Convert.ToInt32(row.Cells["ElectorId"].Value));
+                }
+            }
+
+            if (electorId.Count > 0)
+            {
+                DialogResult dialogResult = MessageBox.Show("Are you sure you want to " + isRequest + " the record?", "PNGEC", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+                if (dialogResult == DialogResult.Yes)
+                {
+                    try
+                    {
+                        this.Cursor = Cursors.WaitCursor;
+
+                        requestModel = new CommonRequest();
+                        requestModel.database = Convert.ToString(GlobalsModel.LoggedUser.Database);
+                        requestModel.ids = string.Join(",", electorId.Select(n => n.ToString()).ToArray());
+                        requestModel.recordType = Convert.ToString(cmbStatus.SelectedValue);
+                        requestModel.id = GlobalsModel.LoggedUser.User.UserId;
+                        requestModel.isApproved = isRequest.Equals("Approve") ? true : false;
+                        requestModel.isRejected = isRequest.Equals("Reject") ? true : false;
+
+                        response = await GenericHttpClient.PostRequest("DataMigration/ManageVoterStatus", requestModel);
+                        if (response.Status)
+                        {
+                            this.Cursor = Cursors.Arrow;
+                            MessageBox.Show("Status changed successfully", "PNGEC", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        }
+                        else
+                        {
+                            this.Cursor = Cursors.Arrow;
+                            MessageBox.Show("Something went wrong, try again later", "PNGEC", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        this.Cursor = Cursors.Arrow;
+                        MessageBox.Show(Resources.ResourceManager.GetString("ErrorMessage"), "PNGEC", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        ErrorLog.Write("File Form", "ManageVoterStatus", ex);
+                    }
+                }
+
+                // Clear all checkbox
+                this.ClearCheckbox();
+            }
+            else
+            {
+                MessageBox.Show("At least one checkbox must be selected.", "PNGEC", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
+        #endregion
+
+        #region ExportGridToPDF
+        /// <summary>
+        /// Exports the grid to PDF.
+        /// </summary>
+        /// <param name="dataGridView">The data grid view.</param>
+        /// <param name="fileName">Name of the file.</param>
+        public void ExportGridToPDF(DataGridView dataGridView, string fileName)
+        {
+            BaseFont baseFont = BaseFont.CreateFont(BaseFont.TIMES_ROMAN, BaseFont.CP1250, BaseFont.EMBEDDED);
+            PdfPTable pdfTable = new PdfPTable(3);
+            pdfTable.DefaultCell.Padding = 3;
+            pdfTable.WidthPercentage = 100;
+            pdfTable.HorizontalAlignment = Element.ALIGN_CENTER;
+            pdfTable.DefaultCell.BorderWidth = 0.1f;
+            pdfTable.HeaderRows = 1;
+            iTextSharp.text.Font text = new iTextSharp.text.Font(baseFont, 10, iTextSharp.text.Font.NORMAL);
+
+
+            foreach (DataGridViewColumn column in dataGridView.Columns)
+            {
+                if (column.HeaderText == "Voter Name" || column.HeaderText == "Elector Id" || column.HeaderText == "Status")
+                {
+                 
+                    iTextSharp.text.Font CoumnHeadertext = new iTextSharp.text.Font(baseFont, 12, iTextSharp.text.Font.BOLD);
+                    PdfPCell cell = new PdfPCell(new Phrase(column.HeaderText, CoumnHeadertext));
+                    cell.BackgroundColor = new iTextSharp.text.BaseColor(240, 240, 240);
+                    pdfTable.AddCell(cell);
+                }
+            }
+
+            foreach (DataGridViewRow row in dataGridView.Rows)
+            {
+                foreach (DataGridViewCell cell in row.Cells)
+                {
+                    if (cell.ColumnIndex == 0 || cell.ColumnIndex == 13 || cell.ColumnIndex == 35)
+                    {
+                        pdfTable.AddCell(new Phrase(cell.Value == null ? string.Empty : cell.Value.ToString(), text));
+                    }
+                }
+            }
+
+            var saveFileDialog = new SaveFileDialog();
+            saveFileDialog.FileName = fileName;
+            saveFileDialog.DefaultExt = ".pdf";
+            if (saveFileDialog.ShowDialog() == DialogResult.OK)
+            {
+                using (FileStream stream = new FileStream(saveFileDialog.FileName, FileMode.Create))
+                {
+                    Document pdfDoc = new Document(PageSize.A4,30,20,80,80);
+                    PdfWriter wri = PdfWriter.GetInstance(pdfDoc, stream);
+                    wri.PageEvent = new ITextEvents(); 
+                    pdfDoc.Open();
+                    pdfDoc.Add(pdfTable);
+                    pdfDoc.Close();
+                    stream.Close();
+                }
+            }
+        }
+
+        #endregion
+<<<<<<< .mine
+
+=======
+>>>>>>> .r203
+        #endregion
+    }
+}

@@ -1,0 +1,325 @@
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Net;
+using System.Net.Mail;
+using System.Text;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Options;
+using PNGEC.API.Domain.Listing;
+using PNGEC.API.Domain.User;
+using PNGEC.API.Helper;
+using PNGEC.API.Repository.User;
+
+namespace PNGEC.API.Service.User
+{
+    public class UserService : IUserService
+    {
+        #region variable declaration
+        /// <summary>
+        /// The i user repository
+        /// </summary>
+        private readonly IUserRepository iUserRepository;
+
+        /// <summary>
+        /// The response
+        /// </summary>
+        private Response response = null;
+
+        /// <summary>
+        /// The lstresponse
+        /// </summary>
+        private Response<UserModel> lstresponse = null;
+
+        /// <summary>
+        /// The result
+        /// </summary>
+        private Result<UserModel> result = null;
+
+        /// <summary>
+        /// The module name
+        /// </summary>
+        private const string ModuleName = "user";
+
+        /// <summary>
+        /// The old profile image name
+        /// </summary>
+        private string OldProfileImageName = string.Empty;
+
+        #endregion
+
+        #region constructor 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="UserService"/> class.
+        /// </summary>
+        /// <param name="config">The configuration.</param>
+        public UserService(string connection)
+        {
+            iUserRepository = new UserRepository(connection);
+        }
+        #endregion
+
+        #region add update user
+        /// <summary>
+        /// Adds the update user.
+        /// </summary>
+        /// <param name="model">The model.</param>
+        /// <returns></returns>
+        public async Task<Response> AddUpdateUser(UserModel model)
+        {
+            response = new Response();
+
+            try
+            {
+                OldProfileImageName = string.Empty;
+                // Save in folder
+                if (model.ProfileImage != null && model.ProfileImage.Length > 0)
+                {
+                    if (!string.IsNullOrWhiteSpace(model.ProfileImageName))
+                    {
+                        OldProfileImageName = model.ProfileImageName;
+                    }
+
+                    model.ProfileImageName = await UploadFiles.UploadFile(model.ProfileImage, ModuleName);
+                }
+
+                // Paasword convert MD5Hash
+                if (!string.IsNullOrWhiteSpace(model.Password) && model.UserId <= 0)
+                {
+                    model.Password = CommonFunction.MD5Hash(model.Password);
+                }
+
+                UserModel user = await iUserRepository.AddUpdateUser(model);
+
+                response.Status = user.ResponseCode > 0;
+
+                if (user.ResponseCode == -1)
+                {
+                    // Previous image delete on edit record
+                    if (!string.IsNullOrWhiteSpace(model.ProfileImageName))
+                    {
+                        UploadFiles.DeleteFile(model.ProfileImageName, ModuleName);
+                    }
+                    response.Message = ResponseMessage.UserError_EmailAddress_Exists;
+                }
+                else if (user.ResponseCode == -2)
+                {
+                    // Previous image delete on edit record
+                    if (!string.IsNullOrWhiteSpace(model.ProfileImageName))
+                    {
+                        UploadFiles.DeleteFile(model.ProfileImageName, ModuleName);
+                    }
+                    response.Message = ResponseMessage.UserError_ContactNumber_Exists;
+                }
+                else
+                {
+                    // Previous image delete on edit record
+                    if (!string.IsNullOrWhiteSpace(OldProfileImageName))
+                    {
+                        UploadFiles.DeleteFile(OldProfileImageName, ModuleName);
+                    }
+                    response.Message = ResponseMessage.Record_Add_Update_Success;
+                    response.Data = user;
+                }
+            }
+            catch (Exception ex)
+            {
+                // Previous image delete on edit record
+                if (!string.IsNullOrWhiteSpace(model.ProfileImageName))
+                {
+                    UploadFiles.DeleteFile(model.ProfileImageName, ModuleName);
+                }
+                response.Message = ex.Message;
+            }
+            return response;
+        }
+        #endregion
+
+        #region get user list
+        /// <summary>
+        /// Gets the user list.
+        /// </summary>
+        /// <param name="model">The model.</param>
+        /// <returns></returns>
+        public async Task<Response<UserModel>> GetUserList(PageList model)
+        {
+            lstresponse = new Response<UserModel>();
+
+            try
+            {
+                result = await iUserRepository.GetUserList(model);
+
+                if(result != null && result.ListItems != null)
+                {
+                    foreach (var item in result.ListItems)
+                    {
+                        if (!string.IsNullOrWhiteSpace(item.ProfileImageName))
+                        {
+                            item.ProfileImageUrl = Directory.CreateDirectory(Directory.GetCurrentDirectory() + "\\Uploads\\user\\") + item.ProfileImageName;
+                        }
+                        else
+                        {
+                            item.ProfileImageUrl = Directory.CreateDirectory(Directory.GetCurrentDirectory() + "\\Uploads\\") + "noimage.png";
+                        }
+                    }
+
+                    lstresponse.Data = result;
+                    lstresponse.Status = true;
+                }
+                else
+                {
+                    lstresponse.Message = ResponseMessage.RecordNotExist;
+                }
+            }
+            catch (Exception ex)
+            {
+                lstresponse.Message = ex.Message;
+            }
+
+            return lstresponse;
+        }
+        #endregion
+
+        #region update user status
+        /// <summary>
+        /// Updates the user status.
+        /// </summary>
+        /// <param name="model">The model.</param>
+        /// <returns></returns>
+        public async Task<Response<UserModel>> UpdateUserStatus(RequestModel model)
+        {
+            lstresponse = new Response<UserModel>();
+
+            try
+            {
+                result = await iUserRepository.UpdateUserStatus(model);
+
+                if (result != null && result.ListItems != null)
+                {
+                    foreach (var item in result.ListItems)
+                    {
+                        if (!string.IsNullOrWhiteSpace(item.ProfileImageName))
+                        {
+                            item.ProfileImageUrl = Directory.CreateDirectory(Directory.GetCurrentDirectory() + "\\Uploads\\user\\") + item.ProfileImageName;
+                        }
+                        else
+                        {
+                            item.ProfileImageUrl = Directory.CreateDirectory(Directory.GetCurrentDirectory() + "\\Uploads\\") + "noimage.png";
+                        }
+                    }
+
+                    lstresponse.Data = result;
+                    lstresponse.Status = true;
+                }
+                else
+                {
+                    lstresponse.Message = ResponseMessage.RecordNotExist;
+                }
+            }
+            catch (Exception ex)
+            {
+                lstresponse.Message = ex.Message;
+            }
+
+            return lstresponse;
+        }
+        #endregion
+
+        #region user login
+        public async Task<Response<UserModel>> UserLogin(RequestModel model)
+        {
+            lstresponse = new Response<UserModel>();
+
+            try
+            {
+                if(!string.IsNullOrWhiteSpace(model.password) && model.password.Length > 0)
+                {
+                    model.password = CommonFunction.MD5Hash(model.password);
+                }
+
+                result = await iUserRepository.UserLogin(model);
+
+                if (result != null && result.ListItems != null && result.TotalRecordCount > 0)
+                {
+                    foreach (var item in result.ListItems)
+                    {
+                        if (!string.IsNullOrWhiteSpace(item.ProfileImageName))
+                        {
+                            item.ProfileImageUrl = Directory.CreateDirectory(Directory.GetCurrentDirectory() + "\\Uploads\\user\\") + item.ProfileImageName;
+                        }
+                        else
+                        {
+                            item.ProfileImageUrl = Directory.CreateDirectory(Directory.GetCurrentDirectory() + "\\Uploads\\") + "noimage.png";
+                        }
+                    }
+
+                    lstresponse.Message = "success";
+
+                    lstresponse.Data = result;
+                    lstresponse.Status = true;
+                }
+                else if (result != null && result.ListItems != null && result.TotalRecordCount == -2)
+                {
+                    lstresponse.Data = result;
+                    lstresponse.Message = "this user, no access rights to the " + model.database + " database.";
+                }
+                else
+                {
+                    lstresponse.Message = "Please enter valid username and password.";
+                }
+            }
+            catch (Exception ex)
+            {
+                lstresponse.Message = ex.Message;
+            }
+
+            return lstresponse;
+        }
+        #endregion
+
+        #region forgot password
+        public async Task<Response> ForgotPassword(RequestModel model)
+        {
+            response = new Response();
+
+            try
+            {
+                UserModel user = await iUserRepository.GetSuperAdminDetails();
+
+                if(user != null && user.UserId > 0 && !string.IsNullOrWhiteSpace(user.EmailAddress))
+                {
+                    MailMessage mail = new MailMessage();
+                    SmtpClient SmtpServer = new SmtpClient("smtp.gmail.com");
+
+                    mail.From = new MailAddress(user.EmailAddress);
+                    mail.To.Add(model.username);
+                    mail.Subject = "Forgot Password";
+                    mail.Body = model.username + " user send forgot password request, please check it details.";
+
+                    SmtpServer.Port = 587;
+                    SmtpServer.Credentials = new System.Net.NetworkCredential(user.EmailAddress, "genius@13");
+                    SmtpServer.EnableSsl = true;
+
+                    SmtpServer.Send(mail);
+
+                    response.Status = true;
+                    response.Message = "Super admin mail send successfully.";
+                }
+                else
+                {
+                    response.Status = false;
+                    response.Message = "something went wrong, try again later";
+                }
+            }
+            catch (Exception ex)
+            {
+                lstresponse.Message = ex.Message;
+            }
+
+            return response;
+        }
+        #endregion
+    }
+}

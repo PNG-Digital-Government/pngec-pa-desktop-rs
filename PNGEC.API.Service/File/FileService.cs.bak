@@ -1,0 +1,312 @@
+﻿using PNGEC.API.Domain.Listing;
+using PNGEC.API.Domain.Mobile.Voter;
+using PNGEC.API.Domain.Report;
+using PNGEC.API.Helper;
+using PNGEC.API.Repository.File;
+using System;
+using System.Threading.Tasks;
+
+namespace PNGEC.API.Service.File
+{
+    public class FileService : IFileService
+    {
+        #region variable declaration
+        /// <summary>
+        /// The i file repository
+        /// </summary>
+        private readonly IFileRepository iFileRepository;
+
+        /// <summary>
+        /// The response
+        /// </summary>
+        private Response response = null;
+
+        /// <summary>
+        /// The lstresponse
+        /// </summary>
+        private Response<VoterModel> lstresponse = null;
+
+        /// <summary>
+        /// The result
+        /// </summary>
+        private Result<VoterModel> result = null;
+
+        /// <summary>
+        /// The API URL
+        /// </summary>
+        private string apiURL = string.Empty;
+
+        /// <summary>
+        /// The lstresponse ward roll report
+        /// </summary>
+        private Response<WardRollBookReortModel> lstresponseWardRollReport = null;
+
+        /// <summary>
+        /// The result ward roll book
+        /// </summary>
+        private Result<WardRollBookReortModel> resultWardRollBook = null;
+
+        /// <summary>
+        /// The lstresponse ward roll report
+        /// </summary>
+        private Response<WardRollBookCsvReportModel> lstresponseWardRollCsvReport = null;
+
+        /// <summary>
+        /// The result ward roll book
+        /// </summary>
+        private Result<WardRollBookCsvReportModel> resultWardRollBookCsv = null;
+
+        #endregion
+
+        #region constructor 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="FileService"/> class.
+        /// </summary>
+        /// <param name="connection">The connection.</param>
+        public FileService(string connection, string apiURL)
+        {
+            iFileRepository = new FileRepository(connection);
+            this.apiURL = apiURL;
+        }
+        #endregion
+
+        #region service
+
+        #region get voter list
+        /// <summary>
+        /// Gets the voter list.
+        /// </summary>
+        /// <param name="model">The model.</param>
+        /// <returns></returns>
+        public async Task<Response<VoterModel>> GetVoterList(PageList model)
+        {
+            lstresponse = new Response<VoterModel>();
+
+            try
+            {
+                result = await iFileRepository.GetVoterList(model);
+
+                if (result != null && result.ListItems != null)
+                {
+                    foreach (var item in result.ListItems)
+                    {
+                        item.VoterName = item.LName + " " + item.FName;
+                        item.SetImageUrl(this.apiURL);
+                        item.SetFormImageUrl(this.apiURL);
+                    }
+
+                    lstresponse.Data = result;
+                    lstresponse.Status = true;
+                }
+                else
+                {
+                    lstresponse.Message = ResponseMessage.RecordNotExist;
+                }
+            }
+            catch (Exception ex)
+            {
+                lstresponse.Message = ex.Message;
+                ErrorLog.Write("FileService", "GetVoterList", ex);
+            }
+
+            return lstresponse;
+        }
+        #endregion
+
+        #region get export records list
+        /// <summary>
+        /// Gets the export records list.
+        /// </summary>
+        /// <param name="model">The model.</param>
+        /// <returns></returns>
+        public async Task<Response<WardRollBookReortModel>> GetExportRecordsList(PageList model)
+        {
+            lstresponseWardRollReport = new Response<WardRollBookReortModel>();
+
+            try
+            {
+                resultWardRollBook = await iFileRepository.GetExportRecordsList(model);
+
+                if (resultWardRollBook != null && resultWardRollBook.ListItems != null)
+                {
+                    foreach (var item in resultWardRollBook.ListItems)
+                    {
+                        item.SetImageUrl(this.apiURL);
+                    }
+
+                    lstresponseWardRollReport.Data = resultWardRollBook;
+                    lstresponseWardRollReport.Status = true;
+                }
+                else
+                {
+                    lstresponse.Message = ResponseMessage.RecordNotExist;
+                }
+            }
+            catch (Exception ex)
+            {
+                lstresponse.Message = ResponseMessage.SomethingWentWrong;
+                lstresponse.Data = null;
+                lstresponse.Status = false;
+                ErrorLog.Write("FileService", "GetExportRecordsList", ex);
+            }
+
+            return lstresponseWardRollReport;
+        }
+        #endregion
+
+        #region get export csv records list
+        /// <summary>
+        /// Gets the export CSV records list.
+        /// </summary>
+        /// <param name="model">The model.</param>
+        /// <returns></returns>
+        public async Task<Response<WardRollBookCsvReportModel>> GetExportCsvRecordsList(PageList model)
+        {
+            lstresponseWardRollCsvReport = new Response<WardRollBookCsvReportModel>();
+
+            try
+            {
+                resultWardRollBookCsv = await iFileRepository.GetExportCsvRecordsList(model);
+
+                if (resultWardRollBookCsv != null && resultWardRollBookCsv.ListItems != null)
+                {
+                    lstresponseWardRollCsvReport.Data = resultWardRollBookCsv;
+                    lstresponseWardRollCsvReport.Status = true;
+                }
+                else
+                {
+                    lstresponse.Message = ResponseMessage.RecordNotExist;                    
+                }
+            }
+            catch (Exception ex)
+            {
+                lstresponse.Message = ResponseMessage.SomethingWentWrong;
+                lstresponse.Data = null;
+                lstresponse.Status = false;
+                lstresponse.Message = ex.Message;
+<<<<<<< .mine
+                ErrorLog.Write("FileService", "GetExportCsvRecordsList", ex);
+=======
+                ErrorLog.Write("VoterService", "GetExportCsvRecordsList", ex);
+>>>>>>> .r435
+            }
+
+            return lstresponseWardRollCsvReport;
+        }
+        #endregion
+
+        #region get duplicate voter list
+        /// <summary>
+        /// Gets the duplicate voter list.
+        /// </summary>
+        /// <param name="voterReqModel">The voter req model.</param>
+        /// <returns></returns>
+        public async Task<Response> GetDuplicateVoterList(VoterRequestModel voterReqModel)
+        {
+            var res = new Response();
+            try
+            {
+                var voters = await iFileRepository.GetDuplicateVoterList(voterReqModel);
+                if (voters != null && voters.ListItems != null)
+                {
+                    foreach (var item in voters.ListItems)
+                    {
+                        item.SetImageUrl(this.apiURL);
+                        //item.SetFormImageUrl(this.apiURL);
+                    }
+                }
+
+                res.Data = voters;
+                res.Status = true;
+                res.Message = "Success";
+            }
+            catch (Exception ex)
+            {
+                res.Message = ResponseMessage.SomethingWentWrong;
+                res.Data = null;
+                res.Status = false;
+                ErrorLog.Write("VoterService", "GetDuplicateVoterList", ex);
+            }
+            return res;
+        }
+        #endregion
+
+        #region get tranfer in voter with condition
+        /// <summary>
+        /// Gets the transfor in voter list.
+        /// </summary>
+        /// <param name="voterReqModel">The voter req model.</param>
+        /// <returns></returns>
+        public async Task<Response<WardRollBookReortModel>> GetTranferinVoterWithCondition(PageList model)
+        {
+            lstresponseWardRollReport = new Response<WardRollBookReortModel>();
+
+            try
+            {
+                resultWardRollBook = await iFileRepository.GetTranferinVoterWithCondition(model);
+
+                if (resultWardRollBook != null && resultWardRollBook.ListItems != null)
+                {
+                    foreach (var item in resultWardRollBook.ListItems)
+                    {
+                        item.SetImageUrl(this.apiURL);
+                    }
+
+                    lstresponseWardRollReport.Data = resultWardRollBook;
+                    lstresponseWardRollReport.Status = true;
+                }
+                else
+                {
+                    lstresponse.Message = ResponseMessage.RecordNotExist;
+                }
+            }
+            catch (Exception ex)
+            {
+                lstresponse.Message = ResponseMessage.SomethingWentWrong;
+                lstresponse.Data = null;
+                lstresponse.Status = false;
+                ErrorLog.Write("FileService", "GetTranferinVoterWithCondition", ex);
+            }
+
+            return lstresponseWardRollReport;
+        }
+        #endregion
+
+        #region get voterlist by province mobile
+        /// <summary>
+        /// Gets the voter list by province mobile.
+        /// </summary>
+        /// <param name="voterReqModel">The voter req model.</param>
+        /// <returns></returns>
+        public async Task<Response> GetVoterListByProvinceMobile(VoterRequestModel voterReqModel)
+        {
+            var res = new Response();
+            try
+            {
+                var voters = await iFileRepository.GetVoterListByProvinceMobile(voterReqModel);
+                if (voters != null && voters.ListItems != null)
+                {
+                    foreach (var item in voters.ListItems)
+                    {
+                        item.SetImageUrl(this.apiURL);
+                        item.SetFormImageUrl(this.apiURL);
+                    }
+                }
+                res.Data = voters;
+                res.Status = true;
+                res.Message = "Success";
+            }
+            catch (Exception ex)
+            {
+                res.Message = ResponseMessage.SomethingWentWrong;
+                res.Data = null;
+                res.Status = false;
+                ErrorLog.Write("VoterService", "GetVoterListByProvinceMobile", ex);
+            }
+            return res;
+        }
+        #endregion
+
+        #endregion
+    }
+}
