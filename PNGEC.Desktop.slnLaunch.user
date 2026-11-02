@@ -1,0 +1,16 @@
+[
+  {
+    "Name": "New Profile",
+    "Projects": [
+      {
+        "Path": "PNGEC.Desktop\\PNGEC.Desktop.csproj",
+        "Action": "Start"
+      },
+      {
+        "Path": "PNGEC.API\\PNGEC.API.csproj",
+        "Action": "Start",
+        "DebugTarget": "IIS Express"
+      }
+    ]
+  }
+]
